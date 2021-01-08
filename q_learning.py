@@ -1,68 +1,73 @@
-from presentation_example_env import EnvDP, simulate
+from mdp import PresentationEnvironment, simulate, policy_iteration
 import matplotlib.pyplot as plt
 import numpy as np
 import random
 
 
-env = EnvDP()
+def q_learning(env, episodes, steps_per_episode, alpha, epsilon, gamma, epsilon_decay=-0.0001):
+    q_table = np.zeros((env.number_of_states, env.number_of_actions))
+    rewards = []
 
-q_table = np.zeros((env.number_of_states, env.number_of_actions))
+    for episode in range(episodes):
+        env.reset()
 
-# Plot
-rewards = []
+        total_rewards = 0
+        state = env.current_state
 
-# Hyperparameters
-alpha = 0.9  # learning rate
-epsilon = 1.  #
-episodes = 400
-gamma = 0.9
-steps_per_episode = 30
+        for step in range(steps_per_episode):
+            if random.uniform(0, 1) < epsilon:
+                action = random.choice(env.action_space)
+            else:
+                action = np.argmax(q_table[state, :])
+                if action not in env.action_space:  # skip step if selected action is invalid
+                    continue
 
-# Policy Training
-for episode in range(episodes):
-    env.reset()
+            next_state, reward, done = env.step(action)
 
-    total_rewards = 0
-    state = env.current_state
+            q_table[state, action] += alpha * (reward + gamma * np.max(q_table[next_state, :] - q_table[state, action]))
 
-    for step in range(steps_per_episode):
-        if random.uniform(0, 1) < epsilon:
-            action = random.choice(env.action_space)
-        else:
-            action = np.argmax(q_table[state, :])
-            if action not in env.action_space:  # skip step if selected action is invalid
-                continue
+            state = next_state
+            total_rewards += reward
 
-        next_state, reward, done = env.step(action)
+            if done:
+                break
 
-        q_table[state, action] += alpha * (reward + gamma * np.max(q_table[next_state, :] - q_table[state, action]))
+        epsilon *= np.exp(epsilon_decay * episode)
 
-        state = next_state
-        total_rewards += reward
+        rewards.append(total_rewards)
 
-        if done:
-            break
+    return q_table, rewards
 
-    epsilon *= np.exp(-0.0001 * episode)
-    rewards.append(total_rewards)
 
-env2 = EnvDP()
-optimal_path, optimal_rewards = simulate(env2, env2.policy_iteration(0.01))
+if __name__ == '__main__':
+    mdp = PresentationEnvironment()
 
-# Plot Rewards over episodes
-plt.plot(rewards, label='Q-learning')
-plt.plot([optimal_rewards] * len(rewards), label='Optimal Solution')
-plt.xlabel('Episodes')
-plt.ylabel('Sum of Rewards')
-plt.legend()
-plt.show()
+    # Hyperparameters
+    episodes = 400
+    steps_per_episode = 10
+    alpha = 0.95            # learning rate
+    epsilon = 1.            # exploration-exploitation rate
+    gamma = 0.3             # discount rate
 
-env.reset()
-path = [env.states[env.current_state]]
-done = False
-while not done:
-    action = np.argmax(q_table[env.current_state, :])
-    _, _, done = env.step(action)
-    path.append(env.states[env.current_state])
+    q_table, rewards_over_time = q_learning(mdp, episodes, steps_per_episode, alpha, epsilon, gamma)
 
-print(' -> '.join(path))
+    optimal_policy = policy_iteration(mdp)
+    q_policy = [np.argmax(q_table[s, :]) for s in range(mdp.number_of_states)]
+
+    optimal_path, optimal_rewards = simulate(mdp, optimal_policy)
+    q_path, q_rewards = simulate(mdp, q_policy)
+
+    # Plot Rewards over episodes
+    fig = plt.figure()
+
+    ax = fig.add_subplot(111)
+    ax.plot(rewards_over_time, '-b', label='Q-learning')
+    ax.plot([optimal_rewards] * len(rewards_over_time), '--r', label='Optimal solution')
+    ax.set_xlabel('Episodes')
+    ax.set_ylabel('Cumulative Rewards')
+
+    plt.figtext(0.96, 0.02, 'alpha: {}; gamma: {}'.format(alpha, gamma), ha="right", fontsize=8)
+    plt.legend()
+    plt.show()
+
+    print('Optimal Path: {}\nQ-Learning Path: {}'.format(' -> '.join(optimal_path), ' -> '.join(q_path)))
